@@ -12,9 +12,21 @@ class PricingOutcome:
     total_cost: float
     profit: float
 
+@dataclass(frozen=True)
+class PricingDecision:
+    price: float
+
+
+@dataclass(frozen=True)
+class PricingParameters:
+    base_demand: float
+    price_elasticity: float
+    unit_cost: float
+    fixed_cost: float
 
 def evaluate_pricing_causal_model(
-    config: PricingSimulationConfig,
+    decision: PricingDecision,
+    params: PricingParameters,
 ) -> PricingOutcome:
     """
     Deterministic causal evaluation of one pricing scenario.
@@ -22,16 +34,16 @@ def evaluate_pricing_causal_model(
     """
 
     # 1. Demand
-    demand = config.base_demand * math.exp(
-        -config.price_elasticity * config.price
+    demand = params.base_demand * math.exp(
+        -params.price_elasticity * decision.price
     )
     demand = max(0.0, demand)
 
     # 2. Revenue
-    revenue = config.price * demand
+    revenue = decision.price * demand
 
     # 3. Cost
-    total_cost = config.fixed_cost + config.unit_cost * demand
+    total_cost = params.fixed_cost + params.unit_cost * demand
 
     # 4. Profit
     profit = revenue - total_cost
@@ -42,3 +54,15 @@ def evaluate_pricing_causal_model(
         total_cost=total_cost,
         profit=profit,
     )
+
+def evaluate_from_config(
+    config: PricingSimulationConfig,
+) -> PricingOutcome:
+    decision = PricingDecision(price=config.price)
+    params = PricingParameters(
+        base_demand=config.base_demand,
+        price_elasticity=config.price_elasticity,
+        unit_cost=config.unit_cost,
+        fixed_cost=config.fixed_cost,
+    )
+    return evaluate_pricing_causal_model(decision, params)
