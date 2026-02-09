@@ -66,3 +66,13 @@ def evaluate_from_config(
         fixed_cost=config.fixed_cost,
     )
     return evaluate_pricing_causal_model(decision, params)
+
+def intervene_price(
+    decision: PricingDecision,
+    new_price: float,
+) -> PricingDecision:
+    """
+    Intervention: do(price = new_price)
+    Returns a new decision with price overridden.
+    """
+    return PricingDecision(price=new_price)
