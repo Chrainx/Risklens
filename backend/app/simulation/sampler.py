@@ -15,5 +15,11 @@ class DistributionSampler:
         if distribution == "lognormal":
             # mean = 0 ensures median = 1.0
             return self._rng.lognormvariate(0.0, sigma)
+        
+        if distribution == "normal":
+            return self._rng.normalvariate(0.0, sigma)
+
+        if distribution == "lognormal":
+            return self._rng.lognormvariate(0.0, sigma)
 
         raise ValueError(f"Unsupported distribution: {distribution}")
