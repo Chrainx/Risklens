@@ -69,6 +69,7 @@ simulation
 - decision.price > 0
 - simulation.num_runs >= 1
 - uncertainty.\*.sigma > 0
+- uncertainty.\*.distribution ∈ {"normal", "lognormal"}
 
 ### Example Request
 
