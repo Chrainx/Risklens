@@ -1,5 +1,3 @@
-# risklens/simulation/monte_carlo.py
-
 import random
 from typing import List
 

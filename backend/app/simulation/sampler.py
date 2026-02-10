@@ -1,5 +1,3 @@
-# risklens/simulation/sampler.py
-
 import math
 import random
 

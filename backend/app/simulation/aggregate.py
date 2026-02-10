@@ -1,5 +1,3 @@
-# risklens/simulation/aggregate.py
-
 from dataclasses import dataclass
 from typing import List, Dict
 import math

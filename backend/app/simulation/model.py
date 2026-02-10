@@ -1,5 +1,3 @@
-# risklens/simulation/model.py
-
 from dataclasses import dataclass
 from .config import PricingSimulationConfig
 import math
