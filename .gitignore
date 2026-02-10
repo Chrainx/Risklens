@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Node / frontend
+node_modules/
+
+# Environments
+.venv/
+venv/
+env/
+
+# OS junk
+.DS_Store
