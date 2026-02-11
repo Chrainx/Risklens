@@ -19,7 +19,17 @@ def aggregate_outcomes(
     if not outcomes:
         raise ValueError("No outcomes to aggregate")
 
-    profits = [o.profit for o in outcomes]
+    profits = []
+    
+    for o in outcomes:
+        # Sanity checks per run
+        if o.demand < 0:
+            raise ValueError("Negative demand detected")
+
+        if not math.isfinite(o.profit):
+            raise ValueError("Non-finite profit detected")
+
+        profits.append(o.profit)
 
     # Mean
     mean = sum(profits) / len(profits)
