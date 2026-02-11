@@ -21,6 +21,10 @@ def run_simulation(
     Runs Monte Carlo and aggregates results.
     """
     outcomes = run_monte_carlo(config)
+
+    if not outcomes:
+        raise RuntimeError("Simulation produced no outcomes")
+
     summary = aggregate_outcomes(outcomes)
     return SimulationResult(
         outcomes=outcomes,
