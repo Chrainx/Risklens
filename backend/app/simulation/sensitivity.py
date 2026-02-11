@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List, Tuple
 
 from .config import PricingSimulationConfig
 from .results import run_simulation
@@ -57,3 +57,20 @@ def sensitivity_analysis(
     )
 
     return impacts
+
+def rank_assumptions_by_impact(
+    base_config: PricingSimulationConfig,
+    perturbation: float = 0.1,
+) -> List[Tuple[str, float]]:
+    """
+    Returns assumptions ranked by absolute impact on mean profit.
+    """
+    impacts = sensitivity_analysis(base_config, perturbation)
+
+    ranked = sorted(
+        impacts.items(),
+        key=lambda item: abs(item[1]),
+        reverse=True,
+    )
+
+    return ranked
