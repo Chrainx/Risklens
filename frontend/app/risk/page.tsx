@@ -81,6 +81,16 @@ export default function RiskPage() {
     const bins = 20
     const min = Math.min(...profits)
     const max = Math.max(...profits)
+
+    if (min === max) {
+      return [
+        {
+          range: min.toFixed(2),
+          count: profits.length,
+        },
+      ]
+    }
+
     const binSize = (max - min) / bins
 
     const histogram = Array.from({ length: bins }, (_, i) => ({
