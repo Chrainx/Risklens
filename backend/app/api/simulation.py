@@ -137,10 +137,13 @@ def simulate_monte_carlo(req: MonteCarloRequest):
         profits = []
 
         for _ in range(req.num_runs):
-            sampled_elasticity = np.random.normal(
-                req.elasticity_mean,
-                req.elasticity_sigma
-            )
+            while True:
+                sampled_elasticity = np.random.normal(
+                    req.elasticity_mean,
+                    req.elasticity_sigma
+                )
+                if sampled_elasticity > 0:
+                    break
 
             params = PricingParameters(
                 base_demand=req.base_demand,
