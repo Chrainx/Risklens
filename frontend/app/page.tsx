@@ -13,6 +13,10 @@ export default function Home() {
       <div style={{ marginTop: 10 }}>
         <Link href="/optimize">Profit Optimization Curve</Link>
       </div>
+
+      <div style={{ marginTop: 10 }}>
+        <Link href="/risk">Monte Carlo Risk Analysis</Link>
+      </div>
     </div>
   )
 }
