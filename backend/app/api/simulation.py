@@ -1,174 +1,216 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-import numpy as np
+from pydantic import BaseModel, Field
+from typing import List, Literal
+import math
 
-
-from app.simulation.model import (
-    PricingDecision,
-    PricingParameters,
-    evaluate_pricing_causal_model,
-)
+from app.simulation.config import PricingSimulationConfig, ConfigValidationError
+from app.simulation.results import run_simulation
 
 router = APIRouter()
 
+Dist = Literal["normal", "lognormal"]
 
-class SimulationRequest(BaseModel):
-    price: float
+
+# ==============================
+# /simulate  (atomic evaluation)
+# ==============================
+
+class SimulateRequest(BaseModel):
+    # decision
+    price: float = Field(gt=0)
+
+    # assumptions
     base_demand: float
     price_elasticity: float
     unit_cost: float
     fixed_cost: float
 
+    # uncertainty (NOTE: your config requires sigma > 0)
+    demand_noise_distribution: Dist = "normal"
+    demand_noise_sigma: float = Field(gt=0)
 
-class SimulationResponse(BaseModel):
-    demand: float
-    revenue: float
-    total_cost: float
-    profit: float
+    elasticity_noise_distribution: Dist = "normal"
+    elasticity_noise_sigma: float = Field(gt=0)
 
-class RangeSimulationRequest(BaseModel):
-    base_demand: float
-    price_elasticity: float
-    unit_cost: float
-    fixed_cost: float
-    min_price: float
-    max_price: float
-    step: float
+    # simulation
+    num_runs: int = Field(default=1000, ge=1)
+    random_seed: int = 0
 
 
-class PricePoint(BaseModel):
-    price: float
-    profit: float
-
-
-class RangeSimulationResponse(BaseModel):
-    curve: list[PricePoint]
-    optimal_price: float
-    max_profit: float
-
-class MonteCarloRequest(BaseModel):
-    price: float
-    base_demand: float
-    elasticity_mean: float
-    elasticity_sigma: float
-    unit_cost: float
-    fixed_cost: float
-    num_runs: int
-
-
-class MonteCarloResponse(BaseModel):
-    profits: list[float]
+class SimulateResponse(BaseModel):
+    profits: List[float]
     mean_profit: float
     std_profit: float
     prob_loss: float
 
 
+@router.post("/simulate", response_model=SimulateResponse)
+async def simulate(req: SimulateRequest) -> SimulateResponse:
+    payload = {
+        "decision": {"price": req.price},
+        "assumptions": {
+            "demand_model": {
+                "base_demand": req.base_demand,
+                "price_elasticity": req.price_elasticity,
+            },
+            "cost_model": {
+                "unit_cost": req.unit_cost,
+                "fixed_cost": req.fixed_cost,
+            },
+        },
+        "uncertainty": {
+            "demand_noise": {
+                "distribution": req.demand_noise_distribution,
+                "sigma": req.demand_noise_sigma,
+            },
+            "elasticity_noise": {
+                "distribution": req.elasticity_noise_distribution,
+                "sigma": req.elasticity_noise_sigma,
+            },
+        },
+        "simulation": {
+            "num_runs": req.num_runs,
+            "random_seed": req.random_seed,
+        },
+    }
 
-@router.post("/simulate", response_model=SimulationResponse)
-def simulate(req: SimulationRequest):
     try:
-        decision = PricingDecision(price=req.price)
+        config = PricingSimulationConfig.from_request(payload)
+    except ConfigValidationError as e:
+        raise HTTPException(status_code=400, detail={"field": e.field, "message": str(e)})
 
-        params = PricingParameters(
-            base_demand=req.base_demand,
-            price_elasticity=req.price_elasticity,
-            unit_cost=req.unit_cost,
-            fixed_cost=req.fixed_cost,
-        )
+    result = run_simulation(config)
+    profits = [o.profit for o in result.outcomes]
 
-        outcome = evaluate_pricing_causal_model(decision, params)
+    mean_profit = result.summary.mean_profit
+    std_profit = math.sqrt(result.summary.profit_variance)
 
-        return SimulationResponse(
-            demand=outcome.demand,
-            revenue=outcome.revenue,
-            total_cost=outcome.total_cost,
-            profit=outcome.profit,
-        )
+    prob_loss = sum(1 for p in profits if p < 0) / len(profits)
 
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    
-@router.post("/simulate-range", response_model=RangeSimulationResponse)
-def simulate_range(req: RangeSimulationRequest):
-    try:
-        params = PricingParameters(
-            base_demand=req.base_demand,
-            price_elasticity=req.price_elasticity,
-            unit_cost=req.unit_cost,
-            fixed_cost=req.fixed_cost,
-        )
+    return SimulateResponse(
+        profits=profits,
+        mean_profit=mean_profit,
+        std_profit=std_profit,
+        prob_loss=prob_loss,
+    )
 
-        curve = []
-        price = req.min_price
 
-        while price <= req.max_price:
-            decision = PricingDecision(price=price)
-            outcome = evaluate_pricing_causal_model(decision, params)
+# =================================
+# /simulate-range (search/optimize)
+# =================================
 
-            curve.append(
-                PricePoint(
-                    price=price,
-                    profit=outcome.profit,
-                )
+class SimulateRangeRequest(BaseModel):
+    # assumptions
+    base_demand: float
+    price_elasticity: float
+    unit_cost: float
+    fixed_cost: float
+
+    # price search
+    min_price: float = Field(gt=0)
+    max_price: float = Field(gt=0)
+    step: float = Field(gt=0)
+
+    # uncertainty (same constraints as config: sigma > 0)
+    demand_noise_distribution: Dist = "normal"
+    demand_noise_sigma: float = Field(gt=0)
+
+    elasticity_noise_distribution: Dist = "normal"
+    elasticity_noise_sigma: float = Field(gt=0)
+
+    # simulation (applied per price)
+    num_runs: int = Field(default=500, ge=1)
+    random_seed: int = 0
+
+
+class PricePoint(BaseModel):
+    price: float
+    mean_profit: float
+    std_profit: float
+    prob_loss: float
+
+
+class SimulateRangeResponse(BaseModel):
+    curve: List[PricePoint]
+    optimal_price: float
+    max_mean_profit: float
+
+
+@router.post("/simulate-range", response_model=SimulateRangeResponse)
+async def simulate_range(req: SimulateRangeRequest) -> SimulateRangeResponse:
+    if req.max_price < req.min_price:
+        raise HTTPException(status_code=400, detail={"field": "max_price", "message": "Must be >= min_price"})
+
+    curve: List[PricePoint] = []
+
+    # avoid float drift by iterating with k
+    span = req.max_price - req.min_price
+    n_steps = int(span / req.step) + 1  # inclusive-ish
+    # safety cap to prevent accidental huge loops
+    if n_steps > 5000:
+        raise HTTPException(status_code=400, detail={"field": "step", "message": "Too many points (cap 5000). Increase step."})
+
+    for k in range(n_steps + 2):
+        price = req.min_price + k * req.step
+        if price > req.max_price + 1e-12:
+            break
+
+        payload = {
+            "decision": {"price": float(price)},
+            "assumptions": {
+                "demand_model": {
+                    "base_demand": req.base_demand,
+                    "price_elasticity": req.price_elasticity,
+                },
+                "cost_model": {
+                    "unit_cost": req.unit_cost,
+                    "fixed_cost": req.fixed_cost,
+                },
+            },
+            "uncertainty": {
+                "demand_noise": {
+                    "distribution": req.demand_noise_distribution,
+                    "sigma": req.demand_noise_sigma,
+                },
+                "elasticity_noise": {
+                    "distribution": req.elasticity_noise_distribution,
+                    "sigma": req.elasticity_noise_sigma,
+                },
+            },
+            "simulation": {
+                "num_runs": req.num_runs,
+                "random_seed": req.random_seed,
+            },
+        }
+
+        try:
+            config = PricingSimulationConfig.from_request(payload)
+        except ConfigValidationError as e:
+            raise HTTPException(status_code=400, detail={"field": e.field, "message": str(e)})
+
+        result = run_simulation(config)
+        profits = [o.profit for o in result.outcomes]
+
+        mean_profit = result.summary.mean_profit
+        std_profit = math.sqrt(result.summary.profit_variance)
+        prob_loss = sum(1 for p in profits if p < 0) / len(profits)
+
+        curve.append(
+            PricePoint(
+                price=float(price),
+                mean_profit=float(mean_profit),
+                std_profit=float(std_profit),
+                prob_loss=float(prob_loss),
             )
-
-            price += req.step
-
-        if not curve:
-            raise ValueError("Price range produced no results.")
-
-        optimal = max(curve, key=lambda p: p.profit)
-
-        return RangeSimulationResponse(
-            curve=curve,
-            optimal_price=optimal.price,
-            max_profit=optimal.profit,
         )
 
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    if not curve:
+        raise HTTPException(status_code=400, detail={"message": "Price range produced no results."})
 
-@router.post("/simulate-monte-carlo", response_model=MonteCarloResponse)
-def simulate_monte_carlo(req: MonteCarloRequest):
-    try:
-        if req.num_runs <= 0:
-            raise ValueError("num_runs must be positive.")
+    optimal = max(curve, key=lambda p: p.mean_profit)
 
-        profits = []
-
-        for _ in range(req.num_runs):
-            while True:
-                sampled_elasticity = np.random.normal(
-                    req.elasticity_mean,
-                    req.elasticity_sigma
-                )
-                if sampled_elasticity > 0:
-                    break
-
-            params = PricingParameters(
-                base_demand=req.base_demand,
-                price_elasticity=sampled_elasticity,
-                unit_cost=req.unit_cost,
-                fixed_cost=req.fixed_cost,
-            )
-
-            decision = PricingDecision(price=req.price)
-            outcome = evaluate_pricing_causal_model(decision, params)
-
-            profits.append(outcome.profit)
-
-        profits_array = np.array(profits)
-
-        mean_profit = float(np.mean(profits_array))
-        std_profit = float(np.std(profits_array))
-        prob_loss = float(np.mean(profits_array < 0))
-
-        return MonteCarloResponse(
-            profits=profits,
-            mean_profit=mean_profit,
-            std_profit=std_profit,
-            prob_loss=prob_loss,
-        )
-
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return SimulateRangeResponse(
+        curve=curve,
+        optimal_price=optimal.price,
+        max_mean_profit=optimal.mean_profit,
+    )

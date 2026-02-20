@@ -12,9 +12,14 @@ import {
 } from 'recharts'
 
 type RangeResponse = {
-  curve: { price: number; profit: number }[]
+  curve: {
+    price: number
+    mean_profit: number
+    std_profit: number
+    prob_loss: number
+  }[]
   optimal_price: number
-  max_profit: number
+  max_mean_profit: number
 }
 
 type FormState = {
@@ -25,6 +30,12 @@ type FormState = {
   min_price: number
   max_price: number
   step: number
+  demand_noise_distribution: 'normal' | 'lognormal'
+  demand_noise_sigma: number
+  elasticity_noise_distribution: 'normal' | 'lognormal'
+  elasticity_noise_sigma: number
+  num_runs: number
+  random_seed: number
 }
 
 export default function Home() {
@@ -36,19 +47,31 @@ export default function Home() {
     min_price: 1,
     max_price: 50,
     step: 2,
+    demand_noise_distribution: 'normal',
+    demand_noise_sigma: 1,
+    elasticity_noise_distribution: 'normal',
+    elasticity_noise_sigma: 0.1,
+    num_runs: 500,
+    random_seed: 42,
   })
 
   const [data, setData] = useState<RangeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
     const { name, value } = e.target
-    const parsed = parseFloat(value)
 
     setForm({
       ...form,
-      [name]: isNaN(parsed) ? 0 : parsed,
-    })
+      [name]:
+        name.includes('distribution')
+          ? value
+          : value === ''
+          ? 0
+          : parseFloat(value),
+    } as FormState)
   }
 
   const generateCurve = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -58,25 +81,20 @@ export default function Home() {
     try {
       const res = await fetch('http://localhost:8000/simulate-range', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       })
 
+      const result = await res.json()
+
       if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.detail || 'Request failed')
+        throw new Error(result.detail?.message || 'Request failed')
       }
 
-      const result: RangeResponse = await res.json()
       setData(result)
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message)
-      } else {
-        setError('Unknown error')
-      }
+      if (err instanceof Error) setError(err.message)
+      else setError('Unknown error')
     }
   }
 
@@ -85,18 +103,36 @@ export default function Home() {
       <h1>RiskLens – Profit Optimization</h1>
 
       <form onSubmit={generateCurve}>
-        {Object.entries(form).map(([key, value]) => (
-          <div key={key}>
-            <label>{key}: </label>
-            <input
-              type="number"
-              step="any"
-              name={key}
-              value={value}
-              onChange={handleChange}
-            />
-          </div>
-        ))}
+        {Object.entries(form).map(([key, value]) => {
+          if (key.includes('distribution')) {
+            return (
+              <div key={key}>
+                <label>{key}: </label>
+                <select
+                  name={key}
+                  value={value as string}
+                  onChange={handleChange}
+                >
+                  <option value="normal">normal</option>
+                  <option value="lognormal">lognormal</option>
+                </select>
+              </div>
+            )
+          }
+
+          return (
+            <div key={key}>
+              <label>{key}: </label>
+              <input
+                type="number"
+                step="any"
+                name={key}
+                value={value}
+                onChange={handleChange}
+              />
+            </div>
+          )
+        })}
 
         <button type="submit">Generate Curve</button>
       </form>
@@ -112,13 +148,20 @@ export default function Home() {
                 <XAxis dataKey="price" />
                 <YAxis />
                 <Tooltip />
-                <Line type="monotone" dataKey="profit" stroke="#8884d8" />
+                <Line
+                  type="monotone"
+                  dataKey="mean_profit"
+                  stroke="#8884d8"
+                  name="Mean Profit"
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>
 
-          <h3 style={{ marginTop: 20 }}>Optimal Price: {data.optimal_price}</h3>
-          <p>Max Profit: {data.max_profit}</p>
+          <h3 style={{ marginTop: 20 }}>
+            Optimal Price: {data.optimal_price}
+          </h3>
+          <p>Max Mean Profit: {data.max_mean_profit.toFixed(2)}</p>
         </>
       )}
     </div>

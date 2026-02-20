@@ -13,3 +13,7 @@ env/
 
 # OS junk
 .DS_Store
+
+# VS Code workspace
+*.code-workspace
+.vscode/

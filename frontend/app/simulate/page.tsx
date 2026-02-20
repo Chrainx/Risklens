@@ -1,12 +1,21 @@
 'use client'
 
 import { useState } from 'react'
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  ResponsiveContainer,
+} from 'recharts'
 
 type SimulationResponse = {
-  demand: number
-  revenue: number
-  total_cost: number
-  profit: number
+  profits: number[]
+  mean_profit: number
+  std_profit: number
+  prob_loss: number
 }
 
 type FormState = {
@@ -15,27 +24,46 @@ type FormState = {
   price_elasticity: number
   unit_cost: number
   fixed_cost: number
+  demand_noise_distribution: 'normal' | 'lognormal'
+  demand_noise_sigma: number
+  elasticity_noise_distribution: 'normal' | 'lognormal'
+  elasticity_noise_sigma: number
+  num_runs: number
+  random_seed: number
 }
 
 export default function Home() {
   const [form, setForm] = useState<FormState>({
-    price: 10,
+    price: 15,
     base_demand: 100,
     price_elasticity: 0.1,
     unit_cost: 3,
     fixed_cost: 50,
+    demand_noise_distribution: 'normal',
+    demand_noise_sigma: 1,
+    elasticity_noise_distribution: 'normal',
+    elasticity_noise_sigma: 0.1,
+    num_runs: 1000,
+    random_seed: 42,
   })
 
   const [result, setResult] = useState<SimulationResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
     const { name, value } = e.target
 
     setForm({
       ...form,
-      [name]: value === '' ? 0 : parseFloat(value),
-    })
+      [name]:
+        name.includes('distribution')
+          ? value
+          : value === ''
+          ? 0
+          : parseFloat(value),
+    } as FormState)
   }
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -45,59 +73,119 @@ export default function Home() {
     try {
       const res = await fetch('http://localhost:8000/simulate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       })
 
+      const data = await res.json()
+
       if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.detail || 'Request failed')
+        throw new Error(data.detail?.message || 'Request failed')
       }
 
-      const data: SimulationResponse = await res.json()
       setResult(data)
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message)
-      } else {
-        setError('Unknown error')
-      }
+      if (err instanceof Error) setError(err.message)
+      else setError('Unknown error')
     }
   }
 
+  // Histogram generator
+  const getHistogramData = (profits: number[]) => {
+    const bins = 20
+    const min = Math.min(...profits)
+    const max = Math.max(...profits)
+
+    if (min === max) {
+      return [
+        {
+          range: min.toFixed(2),
+          count: profits.length,
+        },
+      ]
+    }
+
+    const binSize = (max - min) / bins
+
+    const histogram = Array.from({ length: bins }, (_, i) => ({
+      range: `${(min + i * binSize).toFixed(0)}`,
+      count: 0,
+    }))
+
+    profits.forEach((p) => {
+      const index = Math.min(
+        Math.floor((p - min) / binSize),
+        bins - 1
+      )
+      histogram[index].count += 1
+    })
+
+    return histogram
+  }
+
   return (
-    <div style={{ padding: '40px', fontFamily: 'Arial' }}>
-      <h1>RiskLens Pricing Simulator</h1>
+    <div style={{ padding: 40 }}>
+      <h1>RiskLens – Monte Carlo Pricing Simulator</h1>
 
       <form onSubmit={handleSubmit}>
-        {Object.keys(form).map((key) => (
-          <div key={key}>
-            <label>{key}: </label>
-            <input
-              type="number"
-              step="any"
-              name={key}
-              value={form[key as keyof FormState]}
-              onChange={handleChange}
-            />
-          </div>
-        ))}
+        {Object.entries(form).map(([key, value]) => {
+          if (key.includes('distribution')) {
+            return (
+              <div key={key}>
+                <label>{key}: </label>
+                <select
+                  name={key}
+                  value={value as string}
+                  onChange={handleChange}
+                >
+                  <option value="normal">normal</option>
+                  <option value="lognormal">lognormal</option>
+                </select>
+              </div>
+            )
+          }
 
-        <button type="submit">Simulate</button>
+          return (
+            <div key={key}>
+              <label>{key}: </label>
+              <input
+                type="number"
+                step="any"
+                name={key}
+                value={value}
+                onChange={handleChange}
+              />
+            </div>
+          )
+        })}
+
+        <button type="submit">Run Simulation</button>
       </form>
 
-      {error && <p style={{ color: 'red' }}>Error: {error}</p>}
+      {error && <p style={{ color: 'red' }}>{error}</p>}
 
       {result && (
-        <div style={{ marginTop: '20px' }}>
-          <h3>Results:</h3>
-          <p>Demand: {result.demand}</p>
-          <p>Revenue: {result.revenue}</p>
-          <p>Total Cost: {result.total_cost}</p>
-          <p>Profit: {result.profit}</p>
-        </div>
+        <>
+          <div style={{ marginTop: 30, height: 400 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={getHistogramData(result.profits)}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="range" />
+                <YAxis />
+                <Tooltip />
+                <Bar dataKey="count" fill="#8884d8" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <h3>Expected Profit: {result.mean_profit.toFixed(2)}</h3>
+          <p>Std Dev: {result.std_profit.toFixed(2)}</p>
+          <p>
+            Probability of Loss:{' '}
+            {(result.prob_loss * 100).toFixed(2)}%
+          </p>
+          <p>Runs: {result.profits.length}</p>
+        </>
       )}
     </div>
   )
