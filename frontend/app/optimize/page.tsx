@@ -48,7 +48,7 @@ export default function Home() {
     max_price: 50,
     step: 2,
     demand_noise_distribution: 'normal',
-    demand_noise_sigma: 1,
+    demand_noise_sigma: 0.2,
     elasticity_noise_distribution: 'normal',
     elasticity_noise_sigma: 0.1,
     num_runs: 500,
