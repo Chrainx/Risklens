@@ -99,6 +99,9 @@ class PricingSimulationConfig:
         if elasticity_noise_sigma <= 0:
             raise ConfigValidationError("uncertainty.elasticity_noise.sigma", "Must be > 0")
         
+        if elasticity_noise_sigma > 0.5:
+            raise ConfigValidationError("uncertainty.elasticity_noise.sigma", "Too large; may cause instability")
+        
         if demand_noise_distribution not in ("normal", "lognormal"):
             raise ConfigValidationError(
                 "uncertainty.demand_noise.distribution",

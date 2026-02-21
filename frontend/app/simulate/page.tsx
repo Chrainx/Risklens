@@ -40,7 +40,7 @@ export default function Home() {
     unit_cost: 3,
     fixed_cost: 50,
     demand_noise_distribution: 'normal',
-    demand_noise_sigma: 1,
+    demand_noise_sigma: 0.2,
     elasticity_noise_distribution: 'normal',
     elasticity_noise_sigma: 0.1,
     num_runs: 1000,
